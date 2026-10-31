@@ -1,9 +1,9 @@
-"""Command-line interface: citeqc couple | diagnose | map"""
+"""Command-line interface: citeqc couple | diagnose | map | example"""
 from __future__ import annotations
 import argparse
 import sys
 import pandas as pd
-from . import coupling, diagnostics, mapping
+from . import __version__, coupling, datasets, diagnostics, mapping
 from .io import read_matrix
 
 
@@ -18,7 +18,8 @@ def cmd_couple(a) -> int:
     adt, rna, meta = _load(a)
     if a.normalise:
         adt = pd.DataFrame(coupling.clr(adt.values), index=adt.index, columns=adt.columns)
-        rna = coupling.log_normalise(rna)
+        # counts per 10k of the cell's library, not of the genes that happen to be in the file
+        rna = coupling.log_normalise(rna, total=meta["nCount_RNA"] if "nCount_RNA" in meta else None)
     pairs, unmapped = mapping.map_antibodies(adt.columns, rna.columns)
     print(f"mapped {len(pairs)}/{adt.shape[1]} antibodies to cognate genes", file=sys.stderr)
     if unmapped:
@@ -41,6 +42,8 @@ def cmd_couple(a) -> int:
 
 def cmd_diagnose(a) -> int:
     findings = []
+    if bool(a.adt) != bool(a.meta):
+        raise SystemExit("panel_consistency needs both --adt and --meta")
     if a.adt and a.meta:
         adt, meta = read_matrix(a.adt, a.transpose), read_matrix(a.meta)
         findings.append(diagnostics.panel_consistency(adt, meta, by=a.by))
@@ -59,7 +62,7 @@ def cmd_diagnose(a) -> int:
     if a.bounded:
         findings.append(diagnostics.saturation_check(read_matrix(a.bounded)))
     if not findings:
-        raise SystemExit("nothing to check — pass at least one of "
+        raise SystemExit("nothing to check: pass at least one of "
                          "--adt/--meta, --stat, --groups, --pvalues, --bounded")
     for f in findings:
         print(f)
@@ -79,10 +82,21 @@ def cmd_map(a) -> int:
     return 0
 
 
-def main(argv=None) -> int:
+def cmd_example(a) -> int:
+    paths = datasets.write_example(a.directory, seed=a.seed)
+    print(f"wrote the synthetic example dataset (simulated, not real data) to {a.directory}/:",
+          file=sys.stderr)
+    for name, path in paths.items():
+        print(f"  {path}", file=sys.stderr)
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """The argument parser behind the `citeqc` command."""
     p = argparse.ArgumentParser(
         prog="citeqc",
         description="Protein~mRNA coupling and artefact diagnostics for CITE-seq data.")
+    p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     c = sub.add_parser("couple", help="measure protein~mRNA coupling per antibody")
@@ -90,27 +104,35 @@ def main(argv=None) -> int:
     c.add_argument("--rna", required=True, help="cells x genes")
     c.add_argument("--meta", required=True,
                    help="cells x metadata (strata + nCount_ADT + nCount_RNA)")
-    c.add_argument("--out", default="coupling.csv")
-    c.add_argument("--strata", nargs="+", default=["donor", "celltype"])
-    c.add_argument("--group-size", type=int, default=10)
-    c.add_argument("--draws", type=int, default=10)
-    c.add_argument("--min-groups", type=int, default=25)
-    c.add_argument("--seed", type=int, default=0)
+    c.add_argument("--out", default="coupling.csv", help="output CSV (default: %(default)s)")
+    c.add_argument("--strata", nargs="+", default=["donor", "celltype"],
+                   help="metadata columns defining homogeneous strata (default: %(default)s)")
+    c.add_argument("--group-size", type=int, default=10,
+                   help="cells per pseudo-group (default: %(default)s)")
+    c.add_argument("--draws", type=int, default=10,
+                   help="random pseudo-group partitions per stratum (default: %(default)s)")
+    c.add_argument("--min-groups", type=int, default=25,
+                   help="pseudo-groups a stratum must yield to be used (default: %(default)s)")
+    c.add_argument("--seed", type=int, default=0, help="random seed (default: %(default)s)")
     c.add_argument("--show", type=int, default=10, help="rows to print from each end")
     c.add_argument("--transpose", action="store_true", help="inputs are features x cells")
     c.add_argument("--normalise", action="store_true",
-                   help="inputs are raw counts: apply CLR (ADT) and log-CP10K (RNA)")
+                   help="inputs are raw counts: apply CLR (ADT) and log-CP10K (RNA, "
+                        "scaled by meta's nCount_RNA)")
     c.set_defaults(func=cmd_couple)
 
     d = sub.add_parser("diagnose", help="run artefact checks")
-    d.add_argument("--adt"); d.add_argument("--meta")
-    d.add_argument("--by", default="donor", help="panel-consistency grouping column")
-    d.add_argument("--transpose", action="store_true")
+    d.add_argument("--adt", help="cells x antibodies, for panel_consistency (needs --meta)")
+    d.add_argument("--meta", help="cells x metadata, for panel_consistency (needs --adt)")
+    d.add_argument("--by", default="donor",
+                   help="panel-consistency grouping column (default: %(default)s)")
+    d.add_argument("--transpose", action="store_true", help="--adt is antibodies x cells")
     d.add_argument("--stat", help="one-column table: per-marker test statistic")
     d.add_argument("--controls", nargs="+", default=["CD19", "CD20", "CD14", "CD16"],
                    help="markers absent from the cells analysed")
     d.add_argument("--groups", help="groups x features, plus a size column")
-    d.add_argument("--size-col", default="n_cells")
+    d.add_argument("--size-col", default="n_cells",
+                   help="column of --groups holding cells per group (default: %(default)s)")
     d.add_argument("--pvalues", help="one-column table of p-values")
     d.add_argument("--bounded", help="bounded values (PSI/fractions), features x samples")
     d.set_defaults(func=cmd_diagnose)
@@ -120,7 +142,16 @@ def main(argv=None) -> int:
     m.add_argument("--mechanism", choices=list(mapping.MECHANISMS))
     m.set_defaults(func=cmd_map)
 
-    a = p.parse_args(argv)
+    e = sub.add_parser("example", help="write the synthetic example dataset as CSV files")
+    e.add_argument("directory", nargs="?", default="citeqc_example",
+                   help="output directory (default: %(default)s)")
+    e.add_argument("--seed", type=int, default=0, help="random seed (default: %(default)s)")
+    e.set_defaults(func=cmd_example)
+    return p
+
+
+def main(argv=None) -> int:
+    a = build_parser().parse_args(argv)
     return a.func(a)
 
 
