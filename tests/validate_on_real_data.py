@@ -1,7 +1,10 @@
-"""Doğrulama: paket, makaledeki SCAR sonucunu yeniden üretiyor mu?
+"""Validation: does the package reproduce the paper's SCAR result?
 
-Prototip (src/60_coupling_core.py) ile üretilen results/V4_scar.csv'ye karşı
-paketlenmiş citeqc.coupling.measure() karşılaştırılır.
+Compares the packaged citeqc.coupling.measure() against results/V4_scar.csv,
+which was produced by the analysis prototype (src/60_coupling_core.py) in the
+analysis repository. Not part of the test suite: it needs the processed data.
+
+    PROJECT_ROOT=/path/to/analysis-repo python tests/validate_on_real_data.py
 """
 import os, sys, numpy as np, pandas as pd, pathlib
 from scipy import stats
@@ -25,7 +28,7 @@ M=pd.DataFrame({"donor":s.Project.values,"celltype":s.Celltype.values,
                 "nCount_RNA":s.nCount_RNA.values},index=s.index)
 
 pairs,unmapped=mapping.map_antibodies(A.columns,R.columns)
-print(f"paket {len(pairs)}/{len(CORE)} antikoru eşledi; eşleşmeyen: {unmapped}")
+print(f"package mapped {len(pairs)}/{len(CORE)} antibodies; unmapped: {unmapped}")
 
 res=coupling.measure(A,R,M,pairs,group_size=10,n_draw=10,min_groups=25,seed=4)
 ref=pd.read_csv(ROOT/"results/V4_scar.csv")
@@ -34,15 +37,15 @@ res["m"]=[mapping.normalise(x).replace("-1","").replace("-2","") if x.startswith
 mg=res.merge(ref,left_on="gene",right_on="gene",suffixes=("_pkg","_ref"))
 r,p=stats.spearmanr(mg.median_rho_pkg,mg.median_rho_ref)
 mad=float((mg.median_rho_pkg-mg.median_rho_ref).abs().median())
-print(f"\nortak marker: {len(mg)}")
-print(f"prototip ile sıralama uyumu: Spearman rho={r:.4f}  p={p:.2e}")
-print(f"medyan mutlak fark: {mad:.4f}")
-print("\nen düşük 6 (paket):")
+print(f"\nshared markers: {len(mg)}")
+print(f"rank agreement with the prototype: Spearman rho={r:.4f}  p={p:.2e}")
+print(f"median absolute difference: {mad:.4f}")
+print("\nlowest 6 (package):")
 print(res.nsmallest(6,"median_rho")[["marker","gene","median_rho"]].to_string(index=False))
-assert r>0.95, f"paket prototipi yeniden üretemedi (rho={r:.3f})"
-assert mad<0.02, f"değerler çok sapıyor (MAD={mad:.4f})"
-print("\n✓ DOĞRULANDI: paket makaledeki sonucu yeniden üretiyor")
+assert r>0.95, f"package did not reproduce the prototype (rho={r:.3f})"
+assert mad<0.02, f"values deviate too much (MAD={mad:.4f})"
+print("\nVALIDATED: the package reproduces the paper's result")
 
-print("\n--- tanılamalar aynı veride ---")
+print("\n--- diagnostics on the same data ---")
 print(diagnostics.panel_consistency(A,M,by="donor"))
 sz=s.groupby([s.Project,s.Celltype]).size()
