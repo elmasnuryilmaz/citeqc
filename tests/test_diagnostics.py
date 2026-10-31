@@ -162,3 +162,57 @@ def test_skew_alone_makes_a_size_gradient_that_equal_n_removes():
     assert not flagged.passed and flagged.detail["direction"] == "up"
     equal_n = pd.DataFrame([g[rng.choice(len(g), 5, replace=False)].mean(axis=0) for g in groups])
     assert dx.size_confounding(equal_n, sizes).passed
+
+
+# ------------------------------------------- regressions: index alignment
+def _drifting(seed=0, n=200):
+    rng = np.random.default_rng(seed)
+    sizes = rng.integers(5, 500, n)
+    vals = pd.DataFrame({f"g{i}": np.log10(sizes) + rng.normal(scale=0.5, size=n)
+                         for i in range(40)})
+    return vals, sizes
+
+
+def test_size_confounding_accepts_labelled_groups():
+    """Group names as the index (what the CLI reads) used to raise 'no feature had variance'."""
+    vals, sizes = _drifting()
+    vals.index = [f"clone{i}" for i in range(len(vals))]
+    f = dx.size_confounding(vals, sizes)
+    assert not f.passed and f.detail["skew"] > 0.9
+
+
+def test_size_confounding_does_not_depend_on_index_labels():
+    """A shuffled integer index used to misalign values and sizes and turn a FLAG into a PASS."""
+    vals, sizes = _drifting()
+    ref = dx.size_confounding(vals, sizes)
+    shuffled = vals.copy()
+    shuffled.index = np.random.default_rng(1).permutation(len(vals))
+    f = dx.size_confounding(shuffled, sizes)
+    assert f.passed == ref.passed and f.detail == ref.detail
+
+
+def test_size_confounding_matches_a_labelled_size_series_by_label():
+    vals, sizes = _drifting()
+    vals.index = [f"clone{i}" for i in range(len(vals))]
+    ref = dx.size_confounding(vals, sizes)
+    s = pd.Series(sizes, index=vals.index).iloc[::-1]          # same groups, other order
+    assert dx.size_confounding(vals, s).detail == ref.detail
+
+
+def test_panel_consistency_without_shared_cells_is_a_clear_error():
+    adt = pd.DataFrame({"CD3": [1.0]}, index=["a"])
+    meta = pd.DataFrame({"donor": ["x"]}, index=["b"])
+    with pytest.raises(ValueError, match="share no cell barcodes"):
+        dx.panel_consistency(adt, meta)
+
+
+def test_panel_consistency_flags_equal_sized_but_different_panels(synthetic):
+    """{CD8, CD152} in d1 and {CD152, CD19} in d2 are both 2-marker panels, but not the same one."""
+    adt, _, meta = synthetic
+    adt = adt.copy()
+    adt.loc[meta.donor == "d1", "CD19"] = np.nan
+    adt.loc[meta.donor == "d2", "CD8"] = np.nan
+    f = dx.panel_consistency(adt, meta)
+    assert not f.passed
+    assert f.detail["core_panel"] == ["CD152"] and f.detail["n_panels"] == 2
+    assert "2 different panels" in f.summary

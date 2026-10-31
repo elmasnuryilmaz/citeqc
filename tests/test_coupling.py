@@ -152,3 +152,12 @@ def test_specificity_needs_a_real_background(synthetic):
     adt, rna, meta = synthetic          # only 3 genes: too few for a percentile
     with pytest.raises(ValueError, match="background genes"):
         coupling.specificity(adt, rna, meta, {"CD8": "CD8A"}, group_size=10, n_draw=2, min_groups=25)
+
+
+def test_min_obs_is_configurable_and_explained(synthetic):
+    adt, rna, meta = synthetic
+    kw = dict(group_size=10, n_draw=2, min_groups=25)           # 4 strata x 2 draws = 8 obs
+    with pytest.raises(ValueError, match="min_obs=10 observations \\(best: 8\\)"):
+        coupling.measure(adt, rna, meta, {"CD8": "CD8A"}, **kw)
+    res = coupling.measure(adt, rna, meta, {"CD8": "CD8A"}, min_obs=8, **kw)
+    assert res.loc[0, "n_obs"] == 8
