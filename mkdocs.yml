@@ -1,0 +1,82 @@
+site_name: citeqc
+site_description: Protein-mRNA coupling and artefact diagnostics for CITE-seq data.
+site_url: https://elmasnuryilmaz.github.io/citeqc/
+site_author: Elmasnur Yılmaz
+repo_url: https://github.com/elmasnuryilmaz/citeqc
+repo_name: elmasnuryilmaz/citeqc
+edit_uri: edit/main/docs/
+copyright: Copyright &copy; 2026 Elmasnur Yılmaz. MIT License.
+
+theme:
+  name: material
+  features:
+    - content.code.copy
+    - navigation.footer
+    - navigation.top
+    - search.highlight
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+nav:
+  - Home: index.md
+  - Installation: installation.md
+  - Quick start: quickstart.md
+  - How coupling is measured: coupling.md
+  - Diagnostics: diagnostics.md
+  - CLI reference: cli.md
+  - Python API: api.md
+  - Releasing: releasing.md
+  - Changelog: changelog.md
+
+exclude_docs: |
+  _hooks/
+
+hooks:
+  - docs/_hooks/cli_help.py
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            docstring_style: numpy
+            show_source: false
+            show_root_heading: true
+            show_root_full_path: true
+            heading_level: 2
+            members_order: source
+            filters: ["!^_"]
+            show_signature_annotations: false
+            separate_signature: true
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.snippets:
+      base_path: ["."]
+      check_paths: true
+
+watch:
+  - src/citeqc
+  - examples
+  - CHANGELOG.md

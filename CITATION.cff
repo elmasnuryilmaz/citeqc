@@ -7,10 +7,11 @@ authors:
     family-names: "Yılmaz"
     email: "elmasnrylmz@gmail.com"
 repository-code: "https://github.com/elmasnuryilmaz/citeqc"
-url: "https://github.com/elmasnuryilmaz/citeqc"
+url: "https://elmasnuryilmaz.github.io/citeqc/"
+repository-artifact: "https://pypi.org/project/citeqc/"
 license: MIT
-version: 0.1.1
-date-released: "2026-09-27"
+version: 0.2.0
+date-released: "2026-10-31"
 keywords:
   - CITE-seq
   - single-cell

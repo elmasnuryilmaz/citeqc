@@ -1,33 +1,55 @@
 [build-system]
-requires = ["setuptools>=64", "wheel"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "citeqc"
-version = "0.1.1"
+dynamic = ["version"]
 description = "Measure protein-mRNA coupling in CITE-seq data, and check the analysis for artefacts that produce false positives."
 readme = "README.md"
-requires-python = ">=3.9"
-license = { text = "MIT" }
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "Elmasnur Yılmaz", email = "elmasnrylmz@gmail.com" }]
 keywords = ["CITE-seq", "single-cell", "multimodal", "quality-control", "ADT"]
 classifiers = [
+  "Development Status :: 4 - Beta",
   "Intended Audience :: Science/Research",
   "Topic :: Scientific/Engineering :: Bio-Informatics",
-  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
 ]
-dependencies = ["numpy>=1.23", "pandas>=1.5", "scipy>=1.9"]
+dependencies = ["numpy>=1.23", "pandas>=1.5", "scipy>=1.10"]
 
 [project.optional-dependencies]
 anndata = ["anndata>=0.9", "mudata>=0.2"]
 test = ["pytest>=7"]
+docs = ["mkdocs>=1.6,<2", "mkdocs-material>=9.5", "mkdocstrings[python]>=0.26", "ruff"]
+
+[project.urls]
+Homepage = "https://github.com/elmasnuryilmaz/citeqc"
+Documentation = "https://elmasnuryilmaz.github.io/citeqc/"
+Repository = "https://github.com/elmasnuryilmaz/citeqc"
+Issues = "https://github.com/elmasnuryilmaz/citeqc/issues"
+Changelog = "https://github.com/elmasnuryilmaz/citeqc/blob/main/CHANGELOG.md"
 
 [project.scripts]
 citeqc = "citeqc.cli:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "citeqc.__version__" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
 citeqc = ["data/*.tsv"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

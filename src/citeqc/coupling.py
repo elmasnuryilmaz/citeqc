@@ -50,33 +50,61 @@ def _residual(y: np.ndarray, X: np.ndarray, min_obs: int) -> np.ndarray:
 def measure(adt: pd.DataFrame, rna: pd.DataFrame, meta: pd.DataFrame,
             pairs: dict, *, strata=("donor", "celltype"), group_size: int = 10,
             n_draw: int = 10, min_groups: int = 25, seed: int = 0,
-            depth_cols=("nCount_ADT", "nCount_RNA"), return_raw: bool = False):
+            depth_cols=("nCount_ADT", "nCount_RNA"), return_raw: bool = False,
+            min_obs: int = 10):
     """Measure protein~mRNA coupling for each antibody/gene pair.
 
     Parameters
     ----------
-    adt, rna : cells x features, already normalised (see `clr`, `log_normalise`).
-    meta     : cells x metadata; must contain `strata` and `depth_cols`.
-    pairs    : {antibody: gene}, e.g. from `mapping.map_antibodies`.
-    return_raw : also return every stratum x draw observation. Needed for
-               anything that must respect the donor structure, such as a donor
-               bootstrap, a per-cell-type breakdown, or weighting by variance.
+    adt : DataFrame
+        Cells x antibodies, already normalised (see `clr`).
+    rna : DataFrame
+        Cells x genes, already normalised (see `log_normalise`).
+    meta : DataFrame
+        Cells x metadata; must contain `strata` and `depth_cols`.
+    pairs : dict
+        ``{antibody: gene}``, e.g. from `mapping.map_antibodies`.
+    strata : tuple of str
+        Metadata columns whose combinations define homogeneous groups.
+    group_size : int
+        Cells averaged into each pseudo-group.
+    n_draw : int
+        Random partitions into pseudo-groups per stratum.
+    min_groups : int
+        Pseudo-groups a stratum must yield to be used, so a stratum needs at
+        least ``group_size * min_groups`` cells.
+    seed : int
+        Seed for the random partitions.
+    depth_cols : tuple of str
+        Columns of `meta` holding the raw ADT and RNA library sizes.
+    return_raw : bool
+        Also return every stratum x draw observation. Needed for anything that
+        must respect the donor structure, such as a donor bootstrap, a
+        per-cell-type breakdown, or weighting by variance.
+    min_obs : int
+        Markers with fewer stratum x draw observations than this are left out
+        of the summary.
 
     Returns
     -------
-    DataFrame with one row per marker: median_rho (the headline statistic),
-    q25/q75 across strata and draws, n_obs, n_strata.
-
-    With ``return_raw=True`` a tuple ``(summary, raw)``. `raw` has one row per
-    observation: marker, gene, one column per stratum variable, draw, rho, the
-    standard deviation of the residualised protein (sd_adt) and mRNA (sd_rna)
-    across pseudo-groups, and the number of pseudo-groups. Observations are
-    *not* independent (draws within a stratum share cells; strata within a donor
-    share the donor), so resample donors, not rows.
+    summary : DataFrame
+        One row per marker: `median_rho` (the headline statistic), `q25` /
+        `q75` across strata and draws, `n_obs`, `n_strata`. Sorted by
+        `median_rho`, highest first.
+    raw : DataFrame
+        Only with ``return_raw=True``, which returns ``(summary, raw)``. One
+        row per observation: marker, gene, one column per stratum variable,
+        draw, rho, the standard deviation of the residualised protein
+        (`sd_adt`) and mRNA (`sd_rna`) across pseudo-groups, and the number of
+        pseudo-groups. Observations are *not* independent (draws within a
+        stratum share cells; strata within a donor share the donor), so
+        resample donors, not rows.
 
     Raises
     ------
-    ValueError if required columns are missing or no cells are shared.
+    ValueError
+        If required columns are missing, no cells or pairs are shared, or no
+        marker reaches `min_obs` observations.
     """
     for c in strata:
         if c not in meta.columns:
@@ -133,14 +161,16 @@ def measure(adt: pd.DataFrame, rna: pd.DataFrame, meta: pd.DataFrame,
 
     rows = []
     for a, v in acc.items():
-        if len(v) < 10:
+        if len(v) < min_obs:
             continue
         rs = np.array([r for _, r in v])
         rows.append(dict(marker=a, gene=pairs[a], median_rho=float(np.median(rs)),
                          q25=float(np.percentile(rs, 25)), q75=float(np.percentile(rs, 75)),
                          n_obs=len(rs), n_strata=len({k for k, _ in v})))
     if not rows:
-        raise ValueError("no marker had enough strata; lower min_groups/group_size "
+        best = max(len(v) for v in acc.values())
+        raise ValueError(f"no marker reached min_obs={min_obs} observations (best: {best}); "
+                         "add draws (n_draw), lower min_groups/group_size or min_obs, "
                          "or check that strata are populated")
     summary = pd.DataFrame(rows).sort_values("median_rho", ascending=False, ignore_index=True)
     if not return_raw:
@@ -166,24 +196,48 @@ def specificity(adt: pd.DataFrame, rna: pd.DataFrame, meta: pd.DataFrame, pairs:
     grouping and depth adjustment as `measure`, and asks where the cognate gene
     falls within that antibody's row.
 
-    Parameters
-    ----------
-    genes  : genes forming the background. Default: the cognate genes of `pairs`,
-             i.e. the other markers' genes. Pass a broader list for a wider
-             background, but note memory grows with markers x genes x observations.
-    max_gb : refuse to run if the stored observations would exceed this size.
-
-    Returns
-    -------
-    (matrix, summary). `matrix` is antibodies x genes, the median correlation.
-    `summary` has one row per antibody: cognate_rho, background_mean,
-    background_sd, spec_percentile (share of other genes the cognate gene beats:
-    1.0 means the protein tracks its own transcript better than any other),
-    z_vs_background, rank_of_cognate and n_genes.
-
     The background is not a null: genes that truly co-vary with the antibody
     (CD3E with CD8A in T cells) sit in it. Read the percentile as descriptive.
     With the same `seed`, the cognate entries equal `measure`'s medians.
+
+    Parameters
+    ----------
+    adt : DataFrame
+        Cells x antibodies, already normalised, as in `measure`.
+    rna : DataFrame
+        Cells x genes, already normalised, as in `measure`.
+    meta : DataFrame
+        As in `measure`.
+    pairs : dict
+        As in `measure`.
+    genes : list of str, optional
+        Genes forming the background. Default: the cognate genes of `pairs`,
+        i.e. the other markers' genes. Pass a broader list for a wider
+        background, but note memory grows with markers x genes x observations.
+    strata : tuple of str
+        As in `measure`.
+    group_size : int
+        As in `measure`.
+    n_draw : int
+        As in `measure`.
+    min_groups : int
+        As in `measure`.
+    seed : int
+        As in `measure`.
+    depth_cols : tuple of str
+        As in `measure`.
+    max_gb : float
+        Refuse to run if the stored observations would exceed this size.
+
+    Returns
+    -------
+    matrix : DataFrame
+        Antibodies x genes, the median correlation.
+    summary : DataFrame
+        One row per antibody: `cognate_rho`, `background_mean`,
+        `background_sd`, `spec_percentile` (share of other genes the cognate
+        gene beats: 1.0 means the protein tracks its own transcript better
+        than any other), `z_vs_background`, `rank_of_cognate` and `n_genes`.
     """
     for c in strata:
         if c not in meta.columns:
@@ -259,5 +313,5 @@ def specificity(adt: pd.DataFrame, rna: pd.DataFrame, meta: pd.DataFrame, pairs:
 
 
 def rank_percentile(df: pd.DataFrame, col: str = "median_rho") -> pd.Series:
-    """Within-dataset percentile rank — the unit to compare across datasets."""
+    """Within-dataset percentile rank, the unit to compare across datasets."""
     return df[col].rank(pct=True)

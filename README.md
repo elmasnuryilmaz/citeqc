@@ -1,8 +1,16 @@
 # citeqc
 
+[![PyPI](https://img.shields.io/pypi/v/citeqc)](https://pypi.org/project/citeqc/)
+[![Python versions](https://img.shields.io/pypi/pyversions/citeqc)](https://pypi.org/project/citeqc/)
+[![tests](https://github.com/elmasnuryilmaz/citeqc/actions/workflows/tests.yml/badge.svg)](https://github.com/elmasnuryilmaz/citeqc/actions/workflows/tests.yml)
+[![docs](https://github.com/elmasnuryilmaz/citeqc/actions/workflows/docs.yml/badge.svg)](https://elmasnuryilmaz.github.io/citeqc/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](https://github.com/elmasnuryilmaz/citeqc/blob/main/LICENSE)
+
 Measure how well each antibody in a CITE-seq experiment is predicted by its own
-transcript — and check your analysis for artefacts that produce confident,
+transcript, and check your analysis for artefacts that produce confident,
 biologically plausible false positives.
+
+**Documentation: <https://elmasnuryilmaz.github.io/citeqc/>**
 
 The short version of why this exists: **a third to a half of surface markers
 cannot be read off the transcriptome**, and which ones is predictable from
@@ -26,6 +34,27 @@ Optional `.h5mu` support:
 ```bash
 pip install 'citeqc[anndata]'
 ```
+
+Python 3.10 or newer.
+
+## Quick start
+
+citeqc ships a small **synthetic** dataset (simulated, not real data) in which
+every antibody's behaviour is known by construction, so you can try the whole
+workflow in seconds:
+
+```bash
+citeqc example citeqc_example
+citeqc couple --adt citeqc_example/adt.csv --rna citeqc_example/rna.csv \
+  --meta citeqc_example/meta.csv --normalise
+citeqc diagnose --adt citeqc_example/adt.csv --meta citeqc_example/meta.csv \
+  --groups citeqc_example/groups.csv
+```
+
+The [quick start](https://elmasnuryilmaz.github.io/citeqc/quickstart/) walks
+through the output, and
+[`examples/quickstart.py`](https://github.com/elmasnuryilmaz/citeqc/blob/main/examples/quickstart.py)
+does the same from Python.
 
 ## Measure coupling
 
@@ -74,14 +103,14 @@ summary[["marker", "cognate_rho", "spec_percentile", "rank_of_cognate"]]
 any other gene; about 0.5 means the cognate gene is indistinguishable from the
 background. The background is descriptive rather than a null (genes that truly
 co-vary with the antibody sit in it), and a marker can be low on `measure` yet
-specific here — weak coupling is not the same as no coupling. In our own data
+specific here: weak coupling is not the same as no coupling. In our own data
 CD45RA's transcript, *PTPRC*, ranked 110th of 111 genes in the CD45RA row, while
 the same gene ranked first for CD45RO.
 
 ### How to read the result
 
 Absolute correlations depend on how finely you split cell types, so they are
-**not comparable between datasets** — compare `pct_rank` instead. Within a
+**not comparable between datasets**; compare `pct_rank` instead. Within a
 dataset, calibrate against a marker that should couple well in the cells you are
 looking at (CD8/*CD8A* in CD8⁺ T cells, CD19/*CD19* in B cells). That value is
 your ceiling; markers far below it are not readable from RNA.
@@ -105,7 +134,7 @@ A check flags a problem; it does not say where the problem comes from.
 from citeqc import diagnostics as dx
 
 dx.panel_consistency(adt, meta, by="donor")   # is one panel measured everywhere?
-dx.control_check(my_zscores, controls=["CD19", "CD20"])
+dx.control_check(my_zscores, control_markers=["CD19", "CD20"])
 dx.size_confounding(pseudobulk, sizes=n_cells_per_group)
 dx.pvalue_sanity(my_pvalues)
 dx.saturation_check(psi_matrix)               # bounded values: PSI, fractions
@@ -122,14 +151,14 @@ Exit code is non-zero if any check flags, so it drops into CI.
 
 | Check | What goes wrong | How you can tell |
 |---|---|---|
-| `panel_consistency` | Antibody panels differ between donors; "absent" and "not measured" get confused | Panel size varies by donor; some donors unstained |
+| `panel_consistency` | Antibody panels differ between donors; "absent" and "not measured" get confused | Donors measure different sets of antibodies; some donors unstained |
 | `control_check` | The statistic carries a marker-independent gradient | Lineage-impossible markers (CD19 on T cells) score like genuine ones |
 | `size_confounding` | Group means drift with group size, inflating low-expressed features | Almost every feature moves the same direction with size |
 | `pvalue_sanity` | Constant or saturated features flatten the null | p-values *depleted* near zero, or a spike in the interior |
 | `saturation_check` | Bounded features pinned at 0/1 carry no information but enter FDR | Large fraction identical across all samples |
 
 `size_confounding` deserves emphasis. In our own analysis, before correction it
-produced 8,881 of 11,364 genes at FDR<0.05 — 8,797 "up" against 84 "down". After
+produced 8,881 of 11,364 genes at FDR<0.05: 8,797 "up" against 84 "down". After
 resampling to a fixed number of cells per group, **2** genes survived (both
 "down"). `diagnostics.equal_n_resample` does the resampling.
 
@@ -141,6 +170,9 @@ built from the *other* controls left them at 2.40. We first attributed the
 gradient to ambient signal, and that attribution was wrong: an ambient
 correction should be judged on control markers held out of the correction.
 `ambient_check` remains as an alias of `control_check`.
+
+What each check guards against and how it decides is explained in the
+[diagnostics guide](https://elmasnuryilmaz.github.io/citeqc/diagnostics/).
 
 ## The antibody → gene table
 
@@ -165,7 +197,7 @@ limitation.
 ## What it does not do
 
 It does not normalise for you beyond the helpers in `coupling`, denoise ADT
-(see totalVI or dsb), or correct ambient RNA (see SoupX, CellBender — note that
+(see totalVI or dsb), or correct ambient RNA (see SoupX, CellBender; note that
 neither addresses the antibody signal). It measures and it checks. Run the
 measurement on the normalisation you trust and compare ranks between them; the
 accompanying paper does this for CLR, log-CP10K, isotype subtraction, dsb and totalVI
@@ -174,18 +206,25 @@ accompanying paper does this for CLR, log-CP10K, isotype subtraction, dsb and to
 ## Development
 
 ```bash
-pip install -e '.[test]'
+pip install -e '.[test,anndata]'
 pytest
 ```
 
-50 tests, including synthetic data where the coupled and decoupled markers are
-known by construction, and a validation script that reproduces published results
-on real data to Spearman ρ = 1.000.
+The tests include synthetic data where the coupled and decoupled markers are
+known by construction. `tests/validate_on_real_data.py` (run separately; it
+needs the analysis repository's processed data) checks that the package
+reproduces the prototype's published results on real data, to Spearman
+ρ = 1.000.
+
+Release steps for maintainers are in the
+[releasing guide](https://elmasnuryilmaz.github.io/citeqc/releasing/); changes
+are listed in [`CHANGELOG.md`](https://github.com/elmasnuryilmaz/citeqc/blob/main/CHANGELOG.md).
 
 ## Citing
 
-If you use this, please cite the accompanying paper (in preparation) and the
-datasets you analyse.
+If you use this, please cite it using
+[`CITATION.cff`](https://github.com/elmasnuryilmaz/citeqc/blob/main/CITATION.cff),
+the accompanying paper (in preparation), and the datasets you analyse.
 
 ## License
 
