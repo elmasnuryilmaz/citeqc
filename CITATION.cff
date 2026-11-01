@@ -11,7 +11,7 @@ url: "https://elmasnuryilmaz.github.io/citeqc/"
 repository-artifact: "https://pypi.org/project/citeqc/"
 license: MIT
 version: 0.2.0
-date-released: "2026-10-31"
+date-released: "2026-11-01"
 keywords:
   - CITE-seq
   - single-cell
